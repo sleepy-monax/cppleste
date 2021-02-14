@@ -1,0 +1,24 @@
+TARGET = celeste
+OBJS = celeste.o sdl12main.o
+
+SDL_CONFIG = $(shell psp-config --psp-prefix)/bin/sdl-config
+LIBMIKMOD_CONFIG = $(shell psp-config --psp-prefix)/bin/libmikmod-config
+
+INCDIR =
+CFLAGS = -O2 -G0 -Wall $(shell $(LIBMIKMOD_CONFIG) --cflags) $(shell $(SDL_CONFIG) --cflags) -D_PSP
+CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
+ASFLAGS = $(CFLAGS)
+
+LIBDIR =
+LIBS = -lSDL_mixer -logg -lvorbisidec $(shell $(LIBMIKMOD_CONFIG) --libs) $(shell $(SDL_CONFIG) --libs)
+LDFLAGS =
+
+EXTRA_TARGETS = EBOOT.PBP
+PSP_EBOOT_TITLE = Celeste
+
+USE_PSPSDK_LIBC = 1
+PSP_LARGE_MEMORY = 1
+BUILD_PRX = 1
+
+PSPSDK=$(shell psp-config --pspsdk-path)
+include $(PSPSDK)/lib/build.mak

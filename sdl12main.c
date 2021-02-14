@@ -1,3 +1,6 @@
+#ifdef _PSP
+#include <malloc.h>
+#endif // _PSP
 #include <SDL.h>
 #include <SDL_mixer.h>
 #if SDL_MAJOR_VERSION >= 2
@@ -15,6 +18,11 @@
 #include <3ds.h>
 #endif
 #include "celeste.h"
+
+#ifdef _PSP
+#include <pspmoduleinfo.h>
+PSP_HEAP_SIZE_MAX();
+#endif // _PSP
 
 static void ErrLog(char* fmt, ...) {
 #ifdef _3DS
@@ -43,7 +51,9 @@ Mix_Music* mus[6] = {NULL};
 #define PICO8_W 128
 #define PICO8_H 128
 
-#ifdef _3DS
+#ifdef _PSP
+static const int scale = 1;
+#elif defined(_3DS)
 static const int scale = 2;
 #else
 static int scale = 4;
@@ -119,6 +129,39 @@ static Uint32 getpixel(SDL_Surface *surface, int x, int y) {
 		default:
 			return 0;	   /* shouldn't happen, but avoids warnings */
 	}
+}
+
+void putpixel(SDL_Surface *surface, int x, int y, Uint32 pixel)
+{
+    int bpp = surface->format->BytesPerPixel;
+    /* Here p is the address to the pixel we want to set */
+    Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
+
+    switch(bpp) {
+    case 1:
+        *p = pixel;
+        break;
+
+    case 2:
+        *(Uint16 *)p = pixel;
+        break;
+
+    case 3:
+        if(SDL_BYTEORDER == SDL_BIG_ENDIAN) {
+            p[0] = (pixel >> 16) & 0xff;
+            p[1] = (pixel >> 8) & 0xff;
+            p[2] = pixel & 0xff;
+        } else {
+            p[0] = pixel & 0xff;
+            p[1] = (pixel >> 8) & 0xff;
+            p[2] = (pixel >> 16) & 0xff;
+        }
+        break;
+
+    case 4:
+        *(Uint32 *)p = pixel;
+        break;
+    }
 }
 
 static void loadbmpscale(char* filename, SDL_Surface** s) {
@@ -240,8 +283,17 @@ static Mix_Music* game_state_music = NULL;
 static void mainLoop(void);
 static FILE* TAS = NULL;
 
+#ifdef _PSP
+int main(int argc, char* argv[]) {
+#else
 int main(int argc, char** argv) {
+#endif // _PSP
+#ifdef _PSP
+	SDL_CHECK(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) == 0);
+    SDL_JoystickEventState(SDL_ENABLE);
+#else // _PSP
 	SDL_CHECK(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) == 0);
+#endif // _PSP
 #if SDL_MAJOR_VERSION >= 2
 	SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
 	SDL_GameControllerAddMappingsFromRW(SDL_RWFromFile("gamecontrollerdb.txt", "rb"), 1);
@@ -385,6 +437,9 @@ static void ReadGamepadInput(Uint16* out_buttons);
 #endif
 
 static void mainLoop(void) {
+#ifdef _PSP
+	SDL_Joystick *joy = SDL_JoystickOpen(0);
+#endif
 	const Uint8* kbstate = SDL_GetKeyState(NULL);
 		
 	static int reset_input_timer = 0;
@@ -498,12 +553,21 @@ static void mainLoop(void) {
 	}
 
 	if (!TAS) {
+#ifdef _PSP
+		if (SDL_JoystickGetButton(joy, 7)) buttons_state |= (1<<0);
+		if (SDL_JoystickGetButton(joy, 9)) buttons_state |= (1<<1);
+		if (SDL_JoystickGetButton(joy, 8)) buttons_state |= (1<<2);
+		if (SDL_JoystickGetButton(joy, 6)) buttons_state |= (1<<3);
+		if (SDL_JoystickGetButton(joy, 1)) buttons_state |= (1<<4);
+		if (SDL_JoystickGetButton(joy, 2)) buttons_state |= (1<<5);
+#else
 		if (kbstate[SDLK_LEFT])  buttons_state |= (1<<0);
 		if (kbstate[SDLK_RIGHT]) buttons_state |= (1<<1);
 		if (kbstate[SDLK_UP])    buttons_state |= (1<<2);
 		if (kbstate[SDLK_DOWN])  buttons_state |= (1<<3);
 		if (kbstate[SDLK_z] || kbstate[SDLK_c] || kbstate[SDLK_n] || kbstate[SDLK_a]) buttons_state |= (1<<4);
 		if (kbstate[SDLK_x] || kbstate[SDLK_v] || kbstate[SDLK_m] || kbstate[SDLK_b]) buttons_state |= (1<<5);
+#endif
 	} else if (TAS && !paused) {
 		static int t = 0;
 		t++;
@@ -634,11 +698,19 @@ static inline void Xblit(SDL_Surface* src, SDL_Rect* srcrect, SDL_Surface* dst, 
 		unsigned char* srcpix = src->pixels;
 		int srcpitch = src->pitch;
 		Uint32* dstpix = dst->pixels;
+	#ifdef _PSP
+    #define _blitter(dp, xflip) do                                           \
+    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {                \
+      unsigned char p = getpixel(src, xflip ? srcx+(w-x-1): srcx+x, srcy+y); \
+      if (p) putpixel(dst, dstrect->x+x, dstrect->y+y, getcolor(dp));        \
+    } while(0)
+	#else // _PSP
     #define _blitter(dp, xflip) do                                                                  \
     for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {                                       \
       unsigned char p = srcpix[!xflip ? srcx+x+(srcy+y)*srcpitch : srcx+(w-x-1)+(srcy+y)*srcpitch]; \
       if (p) dstpix[dstrect->x+x + (dstrect->y+y)*dst->w] = getcolor(dp);                           \
     } while(0)
+	#endif // _PSP
 		if (color && flipx) _blitter(color, 1);
 		else if (!color && flipx) _blitter(p, 1);
 		else if (color && !flipx) _blitter(color, 0);

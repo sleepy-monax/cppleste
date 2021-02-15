@@ -20,8 +20,19 @@
 #include "celeste.h"
 
 #ifdef _PSP
+
 #include <pspmoduleinfo.h>
+
 PSP_HEAP_SIZE_MAX();
+
+void _SDL_FillRect(SDL_Surface *surface, SDL_Rect *rect, Uint32 color) {
+	rect->x += 112;
+	rect->y += 8;
+	SDL_FillRect(surface, rect, color);
+}
+
+#define SDL_FillRect _SDL_FillRect
+
 #endif // _PSP
 
 static void ErrLog(char* fmt, ...) {
@@ -52,7 +63,7 @@ Mix_Music* mus[6] = {NULL};
 #define PICO8_H 128
 
 #ifdef _PSP
-static const int scale = 1;
+static const int scale = 2;
 #elif defined(_3DS)
 static const int scale = 2;
 #else
@@ -276,6 +287,9 @@ static void OSDdraw(void) {
 static Mix_Music* current_music = NULL;
 static _Bool enable_screenshake = 1;
 static _Bool paused = 0;
+#ifdef _PSP
+static _Bool previously_paused = 0;
+#endif // _PSP
 static _Bool running = 1;
 static void* initial_game_state = NULL;
 static void* game_state = NULL;
@@ -314,7 +328,11 @@ int main(int argc, char** argv) {
 	SDL_N3DSKeyBind(KEY_L, SDLK_d); //load state
 	SDL_N3DSKeyBind(KEY_R, SDLK_s); //save state
 #endif
+#ifdef _PSP
+	SDL_CHECK(screen = SDL_SetVideoMode(480, 272, 32, videoflag | SDL_HWSURFACE | SDL_DOUBLEBUF));
+#else // _PSP
 	SDL_CHECK(screen = SDL_SetVideoMode(PICO8_W*scale, PICO8_H*scale, 32, videoflag));
+#endif // _PSP	
 	SDL_WM_SetCaption("Celeste", NULL);
 	int mixflag = MIX_INIT_OGG;
 	if (Mix_Init(mixflag) != mixflag) {
@@ -449,6 +467,8 @@ static void mainLoop(void) {
 	if (initial_game_state != NULL
 #ifdef _3DS
 			&& kbstate[SDLK_LSHIFT] && kbstate[SDLK_ESCAPE] && kbstate[SDLK_F11]
+#elif defined(_PSP)
+			&& SDL_JoystickGetButton(joy, 10) && SDL_JoystickGetButton(joy, 11)
 #else
 			&& kbstate[SDLK_F9]
 #endif
@@ -509,6 +529,11 @@ static void mainLoop(void) {
 			}
 			if (ev.jbutton.button == 5) {
 				goto load_state;
+				break;
+			}
+			if (ev.jbutton.button == 10) {
+				enable_screenshake = !enable_screenshake;
+				OSDset("screenshake: %s", enable_screenshake ? "on" : "off");
 				break;
 			}
 		}
@@ -621,10 +646,20 @@ static void mainLoop(void) {
 		SDL_FillRect(screen, &rc, i);
 	}*/
 
+#ifdef _PSP
+	if (!paused || (paused && !previously_paused)) {
+		SDL_FillRect(screen, &(SDL_Rect){-112, -8, 112, 272}, 0);
+		SDL_FillRect(screen, &(SDL_Rect){256, -8, 112, 272}, 0);
+		SDL_Flip(screen);
+		previously_paused = paused;
+	}
+#else
 	SDL_Flip(screen);
+#endif
 
 #if defined(_3DS) /*using SDL_DOUBLEBUF for videomode makes it so SDL_Flip waits for Vsync; so we dont have to delay manually*/ \
  || defined(EMSCRIPTEN) //emscripten_set_main_loop already sets the fps
+ || defined(_PSP)
 	SDL_Delay(1);
 #else
 	static int t = 0;
@@ -658,6 +693,11 @@ static inline void Xblit(SDL_Surface* src, SDL_Rect* srcrect, SDL_Surface* dst, 
 	/* If the destination rectangle is NULL, use the entire dest surface */
 	if (!dstrect)
 		dstrect = (fulldst = (SDL_Rect){0,0,dst->w,dst->h}, &fulldst);
+
+#ifdef _PSP
+	dstrect->x += (480/2) - (PICO8_W*scale/2);
+	dstrect->y += (272/2) - (PICO8_H*scale/2);
+#endif
 
 	int srcx, srcy, w, h;
 	
@@ -726,7 +766,7 @@ static inline void Xblit(SDL_Surface* src, SDL_Rect* srcrect, SDL_Surface* dst, 
 	#ifdef _PSP
     #define _blitter(dp, xflip) do                                           \
     for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {                \
-      unsigned char p = getpixel(src, xflip ? srcx+(w-x-1): srcx+x, srcy+y); \
+      unsigned char p = srcpix[(srcy+y) * srcpitch + (xflip ? srcx+(w-x-1): srcx+x)]; \
       if (p) putpixel(dst, dstrect->x+x, dstrect->y+y, getcolor(dp));        \
     } while(0)
 	#else // _PSP

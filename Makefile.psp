@@ -15,10 +15,10 @@ LDFLAGS =
 
 EXTRA_TARGETS = EBOOT.PBP
 PSP_EBOOT_TITLE = Celeste
+PSP_EBOOT_ICON = ICON0.png
 
 USE_PSPSDK_LIBC = 1
 PSP_LARGE_MEMORY = 1
-BUILD_PRX = 1
 
 PSPSDK=$(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build.mak

@@ -436,6 +436,8 @@ enum {
 static void ReadGamepadInput(Uint16* out_buttons);
 #endif
 
+static const Uint16 stick_deadzone = 32767 / 2; //about half
+
 static void mainLoop(void) {
 #ifdef _PSP
 	SDL_Joystick *joy = SDL_JoystickOpen(0);
@@ -495,6 +497,22 @@ static void mainLoop(void) {
 	SDL_Event ev;
 	while (SDL_PollEvent(&ev)) switch (ev.type) {
 		case SDL_QUIT: running = 0; break;
+#ifdef _PSP
+		case SDL_JOYBUTTONDOWN: {
+			if (ev.jbutton.button == 11) {
+				goto toggle_pause;
+				break;
+			}
+			if (ev.jbutton.button == 4) {
+				goto save_state;
+				break;
+			}
+			if (ev.jbutton.button == 5) {
+				goto load_state;
+				break;
+			}
+		}
+#endif // _PSP
 		case SDL_KEYDOWN: {
 #if SDL_MAJOR_VERSION >= 2
 			if (ev.key.repeat) break; //no key repeat
@@ -554,12 +572,19 @@ static void mainLoop(void) {
 
 	if (!TAS) {
 #ifdef _PSP
+		Sint16 x_axis = SDL_JoystickGetAxis(joy, 0);
+		Sint16 y_axis = SDL_JoystickGetAxis(joy, 1);
+		if (x_axis < -stick_deadzone) buttons_state |= (1 << 0);
+		if (x_axis >  stick_deadzone) buttons_state |= (1 << 1);
+		if (y_axis < -stick_deadzone) buttons_state |= (1 << 2);
+		if (y_axis >  stick_deadzone) buttons_state |= (1 << 3);
+
 		if (SDL_JoystickGetButton(joy, 7)) buttons_state |= (1<<0);
 		if (SDL_JoystickGetButton(joy, 9)) buttons_state |= (1<<1);
 		if (SDL_JoystickGetButton(joy, 8)) buttons_state |= (1<<2);
 		if (SDL_JoystickGetButton(joy, 6)) buttons_state |= (1<<3);
-		if (SDL_JoystickGetButton(joy, 1)) buttons_state |= (1<<4);
-		if (SDL_JoystickGetButton(joy, 2)) buttons_state |= (1<<5);
+		if (SDL_JoystickGetButton(joy, 0) || SDL_JoystickGetButton(joy, 1)) buttons_state |= (1<<4);
+		if (SDL_JoystickGetButton(joy, 2) || SDL_JoystickGetButton(joy, 3)) buttons_state |= (1<<5);
 #else
 		if (kbstate[SDLK_LEFT])  buttons_state |= (1<<0);
 		if (kbstate[SDLK_RIGHT]) buttons_state |= (1<<1);
@@ -1040,7 +1065,6 @@ static struct mapping controller_mappings[30] = {
 	{SDL_CONTROLLER_BUTTON_START,         PSEUDO_BTN_PAUSE}, //pause
 	{0xff, 0xff}
 };
-static const Uint16 stick_deadzone = 32767 / 2; //about half
 
 static void ReadGamepadInput(Uint16* out_buttons) {
 	static _Bool read_config = 0;

@@ -1,9 +1,4 @@
 #include <SDL.h>
-
-#include <SDL_mixer.h>
-#if SDL_MAJOR_VERSION >= 2
-#    include "sdl20compat.inc.c"
-#endif
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
@@ -13,7 +8,10 @@
 #include <string.h>
 #include <time.h>
 
+#include <SDL_mixer.h>
+
 #include "celeste.h"
+#include "sdl20compat.inc.c"
 
 static void ErrLog(char *fmt, ...) {
     FILE *f = stderr;
@@ -47,9 +45,6 @@ static inline Uint32 getcolor(char idx) {
 }
 
 static void ResetPalette(void) {
-    // SDL_SetPalette(surf, SDL_PHYSPAL|SDL_LOGPAL, (SDL_Color*)base_palette, 0,
-    // 16); memcpy(screen->format->palette->colors, base_palette,
-    // 16*sizeof(SDL_Color));
     memcpy(palette, base_palette, sizeof palette);
 }
 
@@ -144,7 +139,6 @@ static void loadbmpscale(char *filename, SDL_Surface **s) {
                 }
         }
     SDL_FreeSurface(bmp);
-    SDL_SetPalette(surf, SDL_PHYSPAL | SDL_LOGPAL, (SDL_Color *)base_palette, 0, 16);
     SDL_SetColorKey(surf, SDL_SRCCOLORKEY, 0);
     // SDL_SaveBMP(_S, #_S "x.bmp");
     *s = surf;
@@ -246,12 +240,10 @@ static FILE *TAS = NULL;
 
 int main(int argc, char **argv) {
     SDL_CHECK(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) == 0);
-#if SDL_MAJOR_VERSION >= 2
     SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     SDL_GameControllerAddMappingsFromRW(
         SDL_RWFromFile("gamecontrollerdb.txt", "rb"), 1
     );
-#endif
     int videoflag = SDL_SWSURFACE | SDL_HWPALETTE;
     SDL_CHECK(screen = SDL_SetVideoMode(PICO8_W * scale, PICO8_H * scale, 32, videoflag));
     SDL_WM_SetCaption("Celeste", NULL);
@@ -330,26 +322,9 @@ skip_load:
     Celeste_P8_init();
 
     printf("ready\n");
-    {
-        FILE *start_fullscreen_f = fopen("ccleste-start-fullscreen.txt", "r");
-        char const *start_fullscreen_v = getenv("CCLESTE_START_FULLSCREEN");
-        if (start_fullscreen_f || (start_fullscreen_v && *start_fullscreen_v)) {
-            SDL_WM_ToggleFullScreen(screen);
-        }
-        if (start_fullscreen_f)
-            fclose(start_fullscreen_f);
-    }
 
-#ifndef EMSCRIPTEN
     while (running)
         mainLoop();
-#else
-#    include <emscripten.h>
-    // FIXME: this assumes that the display refreshes at 60Hz
-    emscripten_set_main_loop(mainLoop, 0, 0);
-    emscripten_set_main_loop_timing(EM_TIMING_RAF, 2);
-    return 0;
-#endif
 
     if (game_state)
         SDL_free(game_state);
@@ -373,7 +348,6 @@ skip_load:
     return 0;
 }
 
-#if SDL_MAJOR_VERSION >= 2
 /* These inputs aren't sent to the game. */
 enum {
     PSEUDO_BTN_SAVE_STATE = 6,
@@ -381,16 +355,15 @@ enum {
     PSEUDO_BTN_EXIT = 8,
     PSEUDO_BTN_PAUSE = 9,
 };
-#endif
 
 static Uint16 const stick_deadzone = 32767 / 2; // about half
 
 static void mainLoop(void) {
-    Uint8 const *kbstate = SDL_GetKeyState(NULL);
+    Uint8 const *kbstate = SDL_GetKeyboardState(NULL);
 
     static int reset_input_timer = 0;
     // hold F9 (select+start+y) to reset
-    if (initial_game_state != NULL && kbstate[SDLK_F9]) {
+    if (initial_game_state != NULL && kbstate[SDL_SCANCODE_F9]) {
         reset_input_timer++;
         if (reset_input_timer >= 30) {
             reset_input_timer = 0;
@@ -408,7 +381,6 @@ static void mainLoop(void) {
     Uint16 prev_buttons_state = buttons_state;
     buttons_state = 0;
 
-#if SDL_MAJOR_VERSION >= 2
     SDL_GameControllerUpdate();
 
     if (!((prev_buttons_state >> PSEUDO_BTN_PAUSE) & 1) &&
@@ -430,7 +402,6 @@ static void mainLoop(void) {
         (buttons_state >> PSEUDO_BTN_LOAD_STATE) & 1) {
         goto load_state;
     }
-#endif
 
     SDL_Event ev;
     while (SDL_PollEvent(&ev))
@@ -440,11 +411,9 @@ static void mainLoop(void) {
             break;
 
         case SDL_KEYDOWN: {
-#if SDL_MAJOR_VERSION >= 2
             if (ev.key.repeat)
-                break; // no key repeat
-#endif
-            if (ev.key.keysym.sym == SDLK_ESCAPE) { // do pause
+                break;                                           // no key repeat
+            if (ev.key.keysym.scancode == SDL_SCANCODE_ESCAPE) { // do pause
             toggle_pause:
                 if (paused)
                     Mix_Resume(-1), Mix_ResumeMusic();
@@ -452,22 +421,19 @@ static void mainLoop(void) {
                     Mix_Pause(-1), Mix_PauseMusic();
                 paused = !paused;
                 break;
-            } else if (ev.key.keysym.sym == SDLK_DELETE) { // exit
+            } else if (ev.key.keysym.scancode == SDL_SCANCODE_DELETE) { // exit
             press_exit:
                 running = 0;
                 break;
-            } else if (ev.key.keysym.sym == SDLK_F11 &&
-                       !(kbstate[SDLK_LSHIFT] || kbstate[SDLK_ESCAPE])) {
-                if (SDL_WM_ToggleFullScreen(screen)) { // this doesn't work on windows..
-                    OSDset("toggle fullscreen");
-                }
+            } else if (ev.key.keysym.scancode == SDL_SCANCODE_F11 &&
+                       !(kbstate[SDL_SCANCODE_LSHIFT] || kbstate[SDL_SCANCODE_ESCAPE])) {
                 screen = SDL_GetVideoSurface();
                 break;
-            } else if (0 && ev.key.keysym.sym == SDLK_5) {
+            } else if (ev.key.keysym.scancode == SDL_SCANCODE_5) {
                 Celeste_P8__DEBUG();
                 break;
-            } else if (ev.key.keysym.sym == SDLK_s &&
-                       kbstate[SDLK_LSHIFT]) { // save state
+            } else if (ev.key.keysym.scancode == SDL_SCANCODE_S &&
+                       kbstate[SDL_SCANCODE_LSHIFT]) { // save state
             save_state:
                 game_state =
                     game_state ? game_state : SDL_malloc(Celeste_P8_get_state_size());
@@ -477,8 +443,8 @@ static void mainLoop(void) {
                     game_state_music = current_music;
                 }
                 break;
-            } else if (ev.key.keysym.sym == SDLK_d &&
-                       kbstate[SDLK_LSHIFT]) { // load state
+            } else if (ev.key.keysym.scancode == SDL_SCANCODE_D &&
+                       kbstate[SDL_SCANCODE_LSHIFT]) { // load state
             load_state:
                 if (game_state) {
                     OSDset("load state");
@@ -494,7 +460,7 @@ static void mainLoop(void) {
                 }
                 break;
             } else if ( // toggle screenshake (e / L+R)
-                ev.key.keysym.sym == SDLK_e
+                ev.key.keysym.scancode == SDL_SCANCODE_E
             ) {
                 enable_screenshake = !enable_screenshake;
                 OSDset("screenshake: %s", enable_screenshake ? "on" : "off");
@@ -505,19 +471,19 @@ static void mainLoop(void) {
 
     if (!TAS) {
 
-        if (kbstate[SDLK_LEFT])
+        if (kbstate[SDL_SCANCODE_LEFT])
             buttons_state |= (1 << 0);
-        if (kbstate[SDLK_RIGHT])
+        if (kbstate[SDL_SCANCODE_RIGHT])
             buttons_state |= (1 << 1);
-        if (kbstate[SDLK_UP])
+        if (kbstate[SDL_SCANCODE_UP])
             buttons_state |= (1 << 2);
-        if (kbstate[SDLK_DOWN])
+        if (kbstate[SDL_SCANCODE_DOWN])
             buttons_state |= (1 << 3);
-        if (kbstate[SDLK_z] || kbstate[SDLK_c] || kbstate[SDLK_n] ||
-            kbstate[SDLK_a])
+        if (kbstate[SDL_SCANCODE_Z] || kbstate[SDL_SCANCODE_C] || kbstate[SDL_SCANCODE_N] ||
+            kbstate[SDL_SCANCODE_A])
             buttons_state |= (1 << 4);
-        if (kbstate[SDLK_x] || kbstate[SDLK_v] || kbstate[SDLK_m] ||
-            kbstate[SDLK_b])
+        if (kbstate[SDL_SCANCODE_X] || kbstate[SDL_SCANCODE_V] || kbstate[SDL_SCANCODE_M] ||
+            kbstate[SDL_SCANCODE_B])
             buttons_state |= (1 << 5);
     } else if (TAS && !paused) {
         static int t = 0;
@@ -959,32 +925,5 @@ static void p8_line(int x0, int y0, int x1, int y1, unsigned char color) {
     }
 #undef PLOT
 }
-
-#if SDL_MAJOR_VERSION >= 2
-// SDL2: read input from connected gamepad
-
-struct mapping {
-    SDL_GameControllerButton sdl_btn;
-    Uint16 pico8_btn;
-};
-static char const *pico8_btn_names[] = {"left", "right", "up", "down", "jump", "dash", "save", "load", "exit", "pause"};
-
-// initialized with default mapping
-static struct mapping controller_mappings[30] = {
-    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, 0},  // left
-    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 1}, // right
-    {SDL_CONTROLLER_BUTTON_DPAD_UP, 2},    // up
-    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, 3},  // down
-    {SDL_CONTROLLER_BUTTON_A, 4},          // jump
-    {SDL_CONTROLLER_BUTTON_B, 5},          // dash
-
-    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, PSEUDO_BTN_SAVE_STATE},  // save
-    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PSEUDO_BTN_LOAD_STATE}, // load
-    {SDL_CONTROLLER_BUTTON_GUIDE, PSEUDO_BTN_EXIT},               // exit
-    {SDL_CONTROLLER_BUTTON_START, PSEUDO_BTN_PAUSE},              // pause
-    {(SDL_GameControllerButton)0xff, 0xff}
-};
-
-#endif
 
 // vim: ts=2 sw=2 noexpandtab

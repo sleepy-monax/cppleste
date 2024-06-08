@@ -401,7 +401,7 @@ struct objprop {
 
 static const struct objprop OBJTYPE_prop[] = {
 #define X(name, t, has_init, has_update, has_draw, _if_not_fruit) \
-    [OBJ_##name] = {                                              \
+    {                                                             \
         .tile = t,                                                \
         .init = (obj_callback_t)name##_init,                      \
         .update = (obj_callback_t)name##_update,                  \
@@ -914,12 +914,7 @@ static void BALLOON_init(OBJ *this) {
 static void BALLOON_update(OBJ *this) {
     if (this->spr == 22) {
         this->offset += 0.01;
-#ifdef CELESTE_P8_HACKED_BALLOONS
-        // hacked balloons: constant y coord and hitbox. for TASes
-        this->hitbox = (HITBOX){.x = -1, .y = -3, .w = 10, .h = 14};
-#else
         this->y = this->start + P8sin(this->offset) * 2;
-#endif
         OBJ *hit = OBJ_collide(this, OBJ_PLAYER, 0, 0);
         if (hit != NULL && hit->djump < max_djump) {
             psfx(6);
@@ -1889,7 +1884,9 @@ void Celeste_P8__DEBUG(void) {
     V(delay_restart)                                                                   \
     V(got_fruit)                                                                       \
     V(has_dashed)                                                                      \
-    V(sfx_timer) V(has_key) V(pause_player) V(flash_bg) V(music_timer)                 \
+    V(sfx_timer)                                                                       \
+    V(has_key)                                                                         \
+    V(pause_player) V(flash_bg) V(music_timer)                                         \
         V(new_bg) V(frames) V(seconds) V(minutes) V(deaths) V(max_djump) V(start_game) \
             V(start_game_flash) V(clouds) V(particles) V(dead_particles) V(objects)
 

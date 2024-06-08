@@ -236,7 +236,6 @@ static void *initial_game_state = NULL;
 static void *game_state = NULL;
 static Mix_Music *game_state_music = NULL;
 static void mainLoop(void);
-static FILE *TAS = NULL;
 
 int main(int argc, char **argv) {
     SDL_CHECK(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) == 0);
@@ -256,13 +255,6 @@ int main(int argc, char **argv) {
     }
     ResetPalette();
     SDL_ShowCursor(0);
-
-    if (argc > 1) {
-        TAS = fopen(argv[1], "r");
-        if (!TAS) {
-            printf("couldn't open TAS file '%s': %s\n", argv[1], strerror(errno));
-        }
-    }
 
     printf("game state size %gkb\n", Celeste_P8_get_state_size() / 1024.);
 
@@ -312,12 +304,7 @@ skip_load:
     if (initial_game_state)
         Celeste_P8_save_state(initial_game_state);
 
-    if (TAS) {
-        // a consistent seed for tas playback
-        Celeste_P8_set_rndseed(8);
-    } else {
-        Celeste_P8_set_rndseed((unsigned)(time(NULL) + SDL_GetTicks()));
-    }
+    Celeste_P8_set_rndseed((unsigned)(time(NULL) + SDL_GetTicks()));
 
     Celeste_P8_init();
 
@@ -469,34 +456,20 @@ static void mainLoop(void) {
         }
         }
 
-    if (!TAS) {
-
-        if (kbstate[SDL_SCANCODE_LEFT])
-            buttons_state |= (1 << 0);
-        if (kbstate[SDL_SCANCODE_RIGHT])
-            buttons_state |= (1 << 1);
-        if (kbstate[SDL_SCANCODE_UP])
-            buttons_state |= (1 << 2);
-        if (kbstate[SDL_SCANCODE_DOWN])
-            buttons_state |= (1 << 3);
-        if (kbstate[SDL_SCANCODE_Z] || kbstate[SDL_SCANCODE_C] || kbstate[SDL_SCANCODE_N] ||
-            kbstate[SDL_SCANCODE_A])
-            buttons_state |= (1 << 4);
-        if (kbstate[SDL_SCANCODE_X] || kbstate[SDL_SCANCODE_V] || kbstate[SDL_SCANCODE_M] ||
-            kbstate[SDL_SCANCODE_B])
-            buttons_state |= (1 << 5);
-    } else if (TAS && !paused) {
-        static int t = 0;
-        t++;
-        if (t == 1)
-            buttons_state = 1 << 4;
-        else if (t > 80) {
-            int btn;
-            fscanf(TAS, "%d,", &btn);
-            buttons_state = btn;
-        } else
-            buttons_state = 0;
-    }
+    if (kbstate[SDL_SCANCODE_LEFT])
+        buttons_state |= (1 << 0);
+    if (kbstate[SDL_SCANCODE_RIGHT])
+        buttons_state |= (1 << 1);
+    if (kbstate[SDL_SCANCODE_UP])
+        buttons_state |= (1 << 2);
+    if (kbstate[SDL_SCANCODE_DOWN])
+        buttons_state |= (1 << 3);
+    if (kbstate[SDL_SCANCODE_Z] || kbstate[SDL_SCANCODE_C] || kbstate[SDL_SCANCODE_N] ||
+        kbstate[SDL_SCANCODE_A])
+        buttons_state |= (1 << 4);
+    if (kbstate[SDL_SCANCODE_X] || kbstate[SDL_SCANCODE_V] || kbstate[SDL_SCANCODE_M] ||
+        kbstate[SDL_SCANCODE_B])
+        buttons_state |= (1 << 5);
 
     if (paused) {
         int const x0 = PICO8_W / 2 - 3 * 4, y0 = 8;

@@ -14,122 +14,6 @@
 
 #include "celeste.h"
 
-#ifdef CELESTE_P8_FIXEDP
-
-// very ugly hack:
-// in order to switch to fixed point type and arithmetic, without having
-// to replace every arithmetic operator with a macro call, use a C++
-// struct with operator overloading and #define float to it...
-// it works, i guess!
-
-#    ifndef __cplusplus
-#        error "fixed point mode can only be compiled with a C++ compiler"
-#    endif
-#    include <climits>
-#    include <cstdint>
-struct _fix32 {
-    int32_t n;
-    static int32_t const FACTOR = (1 << 16);
-
-    // constructor
-    template <typename T>
-    _fix32(T v) { *this = v; /* use operator= */ }
-    _fix32() { /*undefined*/ }
-
-    // construct number from raw integer value
-    static _fix32 from_bits(int32_t i) {
-        _fix32 tmp;
-        tmp.n = i;
-        return tmp;
-    }
-
-    // fractional part
-    inline uint16_t frac() { return static_cast<uint16_t>(this->n); }
-
-    // T -> _fix32
-    template <typename T>
-    static inline _fix32 from(T n) { return _fix32::from_bits(n * T(FACTOR)); }
-    // _fix32 -> T
-    template <typename T>
-    inline T to() const { return T(this->n) / T(FACTOR); }
-
-    template <typename T>
-    inline _fix32 &operator=(T n) {
-        this->n = _fix32::from<T>(n).n;
-        return *this;
-    }
-
-    // same as .to<T>()
-    template <typename T>
-    inline explicit operator T() const { return this->to<T>(); }
-
-    // arithmetic operator overloading
-    inline friend _fix32 operator+(_fix32 a, _fix32 b) { return from_bits(a.n + b.n); }
-    inline friend _fix32 operator-(_fix32 a, _fix32 b) { return from_bits(a.n - b.n); }
-    inline friend _fix32 operator-(_fix32 a) { return from_bits(-a.n); }
-    inline friend _fix32 operator*(_fix32 a, _fix32 b) {
-        return from_bits(int64_t(a.n) * int64_t(b.n) / int64_t(FACTOR));
-    }
-    inline friend _fix32 operator/(_fix32 a, _fix32 b) { // pico8 decomp'd
-        if (b == 0)
-            return a > 0 ? FACTOR : -FACTOR; // +inf / -inf
-        if (b.frac() == 0 && ((int)b > 0)) {
-            return _fix32::from_bits(int64_t(a.n) / int64_t(b));
-        }
-        return from_bits((int64_t(a.n) * FACTOR) / int64_t(b.n));
-    }
-
-    inline friend _fix32 &operator+=(_fix32 &a, _fix32 b) { return a = a + b; }
-    inline friend _fix32 &operator-=(_fix32 &a, _fix32 b) { return a = a - b; }
-    inline friend _fix32 &operator*=(_fix32 &a, _fix32 b) { return a = a * b; }
-    inline friend _fix32 &operator/=(_fix32 &a, _fix32 b) { return a = a / b; }
-    inline friend bool operator==(_fix32 a, _fix32 b) { return a.n == b.n; }
-    inline friend bool operator!=(_fix32 a, _fix32 b) { return a.n != b.n; }
-    inline friend bool operator<(_fix32 a, _fix32 b) { return a.n < b.n; }
-    inline friend bool operator>(_fix32 a, _fix32 b) { return a.n > b.n; }
-    inline friend bool operator<=(_fix32 a, _fix32 b) { return a.n <= b.n; }
-    inline friend bool operator>=(_fix32 a, _fix32 b) { return a.n >= b.n; }
-};
-static_assert(sizeof(_fix32) == 4, "bad");
-
-// math functions
-static _fix32 _fix32_mod(_fix32 a, _fix32 b) {
-    return _fix32::from_bits(((a.n % b.n) + b.n) % b.n);
-}
-static _fix32 _fix32_sin(_fix32 x) { // pico8 decomp'd
-    static int32_t const sin_tbl[4098] = {
-        #include "data/sintab.inc"
-    };
-    unsigned index = ((x.n + 0x4002) >> 2) & 0x3FFF;
-    if (0x1FFF < index) {
-        index = 0x4000 - index;
-    }
-    if ((int)index < 0x1000) {
-        return _fix32::from_bits(sin_tbl[index]);
-    }
-    return _fix32::from_bits(-sin_tbl[0x2000 - index]);
-}
-static int _fix32_floor(_fix32 x) {
-    return static_cast<int>(static_cast<unsigned>(x.n) & 0xFFFF0000) / (1 << 16);
-}
-static _fix32 _fix32_min(_fix32 a, _fix32 b) {
-    return a > b ? b : a;
-}
-static _fix32 _fix32_max(_fix32 a, _fix32 b) {
-    return a > b ? a : b;
-}
-static _fix32 _fix32_abs(_fix32 x) {
-    return x >= 0 ? x : -x;
-}
-
-#    define float _fix32
-
-#else // CELESTE_P8_FIXEDP
-
-#    define float float
-
-#endif // CELESTE_P8_FIXEDP
-
 #ifdef __cplusplus
 #    define this xthis // this is a keyword in C++
 #endif
@@ -143,10 +27,6 @@ static void load_room(int x, int y);
 static void next_room(void);
 static void psfx(int num);
 static void restart_room(void);
-
-#define bool Celeste_P8_bool_t
-#define false 0
-#define true 1
 
 static float clamp(float val, float a, float b);
 static float appr(float val, float target, float amount);
@@ -235,15 +115,14 @@ static void pico8_srand(unsigned seed) { // also decomp'd
     }
     rnd_seed_lo = seed;
 }
-#ifndef CELESTE_P8_FIXEDP
 // https://github.com/lemon-sherbet/ccleste/issues/1
 static float P8modulo(float a, float b) {
     return fmodf(fmodf(a, b) + b, b);
 }
-#    define P8max fmaxf
-#    define P8min fminf
-#    define P8abs fabsf
-#    define P8flr floorf
+#define P8max fmaxf
+#define P8min fminf
+#define P8abs fabsf
+#define P8flr floorf
 static float P8rnd(float max) {
     int n = pico8_random(max * (1 << 16));
     return (float)n / (1 << 16);
@@ -251,32 +130,8 @@ static float P8rnd(float max) {
 static float P8sin(float x) {
     return -sinf(x * 6.2831853071796f); // https://pico-8.fandom.com/wiki/Math
 }
-#else // CELESTE_P8_FIXEDP
-#    define P8modulo _fix32_mod
-#    define P8max _fix32_max
-#    define P8min _fix32_min
-#    define P8abs _fix32_abs
-#    define P8flr _fix32_floor
-static _fix32 P8rnd(_fix32 max) {
-    return _fix32::from_bits(pico8_random(max.n));
-}
-#    define P8sin _fix32_sin
-#endif
 
 #define P8cos(x) (-P8sin((x) + 0.25f)) // cos(x) = sin(x+pi/2)
-
-#ifdef CELESTE_P8_FIXEDP
-// these need explicit casts to int
-#    define P8pal(_a, _b) P8pal(int(_a), int(_b))
-#    define P8spr(_s, _x, _y, _c, _r, _fx, _fy) P8spr(int(_s), int(_x), int(_y), (_c), (_r), (_fx), (_fy))
-#    define P8circfill(_x, _y, _r, _c) P8circfill(int(_x), int(_y), int(_r), (_c))
-#    define P8rectfill(_x0, _y0, _x1, _y1, _c) P8rectfill(int(_x0), int(_y0), int(_x1), int(_y1), int(_c))
-#    define P8print(_s, _x, _y, _c) P8print(_s, int(_x), int(_y), (_c))
-#    define P8line(_x0, _y0, _x1, _y1, _c) P8line(int(_x0), int(_y0), int(_x1), int(_y1), (_c))
-#    define P8camera(_x, _y) P8camera(int(_x), int(_y))
-static inline bool ice_at(float x, float y, float w, float h) { return ice_at(int(x), int(y), int(w), int(h)); }
-static inline bool solid_at(float x, float y, float w, float h) { return solid_at(int(x), int(y), int(w), int(h)); }
-#endif
 
 #define MAX_OBJECTS 30
 #define FRUIT_COUNT 30
@@ -292,6 +147,7 @@ static inline bool solid_at(float x, float y, float w, float h) { return solid_a
 typedef struct {
     float x, y;
 } VEC;
+
 typedef struct {
     int x, y;
 } VECI;
@@ -2023,13 +1879,19 @@ void Celeste_P8__DEBUG(void) {
 }
 
 // all of the global game variables; this holds the entire game state (exc. music/sounds playing)
-#define LISTGVARS(V)                                                                           \
-    V(rnd_seed_lo)                                                                             \
-    V(rnd_seed_hi)                                                                             \
-        V(room) V(freeze) V(shake) V(will_restart) V(delay_restart) V(got_fruit)               \
-            V(has_dashed) V(sfx_timer) V(has_key) V(pause_player) V(flash_bg) V(music_timer)   \
-                V(new_bg) V(frames) V(seconds) V(minutes) V(deaths) V(max_djump) V(start_game) \
-                    V(start_game_flash) V(clouds) V(particles) V(dead_particles) V(objects)
+#define LISTGVARS(V)                                                                   \
+    V(rnd_seed_lo)                                                                     \
+    V(rnd_seed_hi)                                                                     \
+    V(room)                                                                            \
+    V(freeze)                                                                          \
+    V(shake)                                                                           \
+    V(will_restart)                                                                    \
+    V(delay_restart)                                                                   \
+    V(got_fruit)                                                                       \
+    V(has_dashed)                                                                      \
+    V(sfx_timer) V(has_key) V(pause_player) V(flash_bg) V(music_timer)                 \
+        V(new_bg) V(frames) V(seconds) V(minutes) V(deaths) V(max_djump) V(start_game) \
+            V(start_game_flash) V(clouds) V(particles) V(dead_particles) V(objects)
 
 size_t Celeste_P8_get_state_size(void) {
 #define V_SIZE(v) (sizeof v) +

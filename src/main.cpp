@@ -179,7 +179,7 @@ static void loadbmpscale(char *filename, SDL_Surface **s) {
     surf =
         SDL_CreateRGBSurface(SDL_SWSURFACE, w * scale, h * scale, 8, 0, 0, 0, 0);
     assert(surf != NULL);
-    unsigned char *data = surf->pixels;
+    unsigned char *data = (unsigned char *)surf->pixels;
     /*memcpy((_S)->format->palette->colors, base_palette, 16*sizeof(SDL_Color));*/
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
@@ -237,7 +237,7 @@ static void LoadData(void) {
         LOGDONE();
     }
 }
-#include "data/map.inc"
+#include "../data/map.inc"
 
 static Uint16 buttons_state = 0;
 
@@ -280,12 +280,12 @@ static void OSDdraw(void) {
 }
 
 static Mix_Music *current_music = NULL;
-static _Bool enable_screenshake = 1;
-static _Bool paused = 0;
+static bool enable_screenshake = 1;
+static bool paused = 0;
 #ifdef _PSP
-static _Bool previously_paused = 0;
+static bool previously_paused = 0;
 #endif // _PSP
-static _Bool running = 1;
+static bool running = 1;
 static void *initial_game_state = NULL;
 static void *game_state = NULL;
 static Mix_Music *game_state_music = NULL;
@@ -741,11 +741,6 @@ static inline void Xblit(SDL_Surface *src, SDL_Rect *srcrect, SDL_Surface *dst, 
     if (!dstrect)
         dstrect = (fulldst = (SDL_Rect){0, 0, dst->w, dst->h}, &fulldst);
 
-#ifdef _PSP
-    dstrect->x += (480 / 2) - (PICO8_W * scale / 2);
-    dstrect->y += (272 / 2) - (PICO8_H * scale / 2);
-#endif
-
     int srcx, srcy, w, h;
 
     /* clip the source rectangle to the source surface */
@@ -807,31 +802,19 @@ static inline void Xblit(SDL_Surface *src, SDL_Rect *srcrect, SDL_Surface *dst, 
     }
 
     if (w && h) {
-        unsigned char *srcpix = src->pixels;
+        unsigned char *srcpix = (unsigned char *)src->pixels;
         int srcpitch = src->pitch;
-        Uint32 *dstpix = dst->pixels;
-#ifdef _PSP
-#    define _blitter(dp, xflip)                                                                                \
-        do                                                                                                     \
-            for (int y = 0; y < h; y++)                                                                        \
-                for (int x = 0; x < w; x++) {                                                                  \
-                    unsigned char p = srcpix[(srcy + y) * srcpitch + (xflip ? srcx + (w - x - 1) : srcx + x)]; \
-                    if (p)                                                                                     \
-                        putpixel(dst, dstrect->x + x, dstrect->y + y, getcolor(dp));                           \
-                }                                                                                              \
-        while (0)
-#else // _PSP
-#    define _blitter(dp, xflip)                                                                                         \
-        do                                                                                                              \
-            for (int y = 0; y < h; y++)                                                                                 \
-                for (int x = 0; x < w; x++) {                                                                           \
-                    unsigned char p =                                                                                   \
-                        srcpix[!xflip ? srcx + x + (srcy + y) * srcpitch : srcx + (w - x - 1) + (srcy + y) * srcpitch]; \
-                    if (p)                                                                                              \
-                        dstpix[dstrect->x + x + (dstrect->y + y) * dst->w] = getcolor(dp);                              \
-                }                                                                                                       \
-        while (0)
-#endif // _PSP
+        Uint32 *dstpix = (Uint32 *)dst->pixels;
+#define _blitter(dp, xflip)                                                                                         \
+    do                                                                                                              \
+        for (int y = 0; y < h; y++)                                                                                 \
+            for (int x = 0; x < w; x++) {                                                                           \
+                unsigned char p =                                                                                   \
+                    srcpix[!xflip ? srcx + x + (srcy + y) * srcpitch : srcx + (w - x - 1) + (srcy + y) * srcpitch]; \
+                if (p)                                                                                              \
+                    dstpix[dstrect->x + x + (dstrect->y + y) * dst->w] = getcolor(dp);                              \
+            }                                                                                                       \
+    while (0)
         if (color && flipx)
             _blitter(color, 1);
         else if (!color && flipx)
@@ -878,13 +861,13 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
     va_start(args, call);
 
 #define INT_ARG() va_arg(args, int)
-#define BOOL_ARG() (Celeste_P8_bool_t) va_arg(args, int)
+#define BOOL_ARG() (bool)va_arg(args, int)
 #define RET_INT(_i) \
     do {            \
         ret = (_i); \
         goto end;   \
     } while (0)
-#define RET_BOOL(_b) RET_INT(!!(_b))
+#define RETbool(_b) RET_INT(!!(_b))
 
     switch (call) {
     case CELESTE_P8_MUSIC: { // music(idx,fade,mask)
@@ -930,7 +913,7 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
     case CELESTE_P8_BTN: { // btn(b)
         int b = INT_ARG();
         assert(b >= 0 && b <= 5);
-        RET_BOOL(buttons_state & (1 << b));
+        RETbool(buttons_state & (1 << b));
     } break;
     case CELESTE_P8_SFX: { // sfx(id)
         int id = INT_ARG();
@@ -957,65 +940,33 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
 
         int realcolor = getcolor(col);
 
-        if (r <= 1) {
-            SDL_FillRect(screen, &(SDL_Rect){scale * (cx - 1), scale * cy, scale * 3, scale}, realcolor);
-            SDL_FillRect(screen, &(SDL_Rect){scale * cx, scale * (cy - 1), scale, scale * 3}, realcolor);
-        } else if (r <= 2) {
-            SDL_FillRect(
-                screen,
-                &(SDL_Rect){scale * (cx - 2), scale * (cy - 1), scale * 5, scale * 3},
-                realcolor
-            );
-            SDL_FillRect(
-                screen,
-                &(SDL_Rect){scale * (cx - 1), scale * (cy - 2), scale * 3, scale * 5},
-                realcolor
-            );
-        } else if (r <= 3) {
-            SDL_FillRect(
-                screen,
-                &(SDL_Rect){scale * (cx - 3), scale * (cy - 1), scale * 7, scale * 3},
-                realcolor
-            );
-            SDL_FillRect(
-                screen,
-                &(SDL_Rect){scale * (cx - 1), scale * (cy - 3), scale * 3, scale * 7},
-                realcolor
-            );
-            SDL_FillRect(
-                screen,
-                &(SDL_Rect){scale * (cx - 2), scale * (cy - 2), scale * 5, scale * 5},
-                realcolor
-            );
-        } else {               // i dont think the game uses this
-            int f = 1 - r;     // used to track the progress of the drawn circle (since
-                               // its semi-recursive)
-            int ddFx = 1;      // step x
-            int ddFy = -2 * r; // step y
-            int x = 0;
-            int y = r;
+        int f = 1 - r;     // used to track the progress of the drawn circle (since
+                           // its semi-recursive)
+        int ddFx = 1;      // step x
+        int ddFy = -2 * r; // step y
+        int x = 0;
+        int y = r;
 
-            // this algorithm doesn't account for the diameters
-            // so we have to set them manually
-            p8_line(cx, cy - y, cx, cy + r, col);
-            p8_line(cx + r, cy, cx - r, cy, col);
+        // this algorithm doesn't account for the diameters
+        // so we have to set them manually
+        p8_line(cx, cy - y, cx, cy + r, col);
+        p8_line(cx + r, cy, cx - r, cy, col);
 
-            while (x < y) {
-                if (f >= 0) {
-                    y--;
-                    ddFy += 2;
-                    f += ddFy;
-                }
-                x++;
-                ddFx += 2;
-                f += ddFx;
-
-                // build our current arc
-                p8_line(cx + x, cy + y, cx - x, cy + y, col);
-                p8_line(cx + x, cy - y, cx - x, cy - y, col);
-                p8_line(cx + y, cy + x, cx - y, cy + x, col);
-                p8_line(cx + y, cy - x, cx - y, cy - x, col);
+        while (x < y) {
+            if (f >= 0) {
+                y--;
+                ddFy += 2;
+                f += ddFy;
             }
+            x++;
+            ddFx += 2;
+            f += ddFx;
+
+            // build our current arc
+            p8_line(cx + x, cy + y, cx - x, cy + y, col);
+            p8_line(cx + x, cy - y, cx - x, cy - y, col);
+            p8_line(cx + y, cy + x, cx - y, cy + x, col);
+            p8_line(cx + y, cy - x, cx - y, cy - x, col);
         }
     } break;
     case CELESTE_P8_PRINT: { // print(str,x,y,col)
@@ -1127,9 +1078,10 @@ static void p8_line(int x0, int y0, int x1, int y1, unsigned char color) {
     Uint32 realcolor = getcolor(color);
 
 #undef CLAMP
-#define PLOT(x, y)                                                                        \
-    do {                                                                                  \
-        SDL_FillRect(screen, &(SDL_Rect){x * scale, y * scale, scale, scale}, realcolor); \
+#define PLOT(x, y)                                          \
+    do {                                                    \
+        SDL_Rect rc = {x * scale, y * scale, scale, scale}; \
+        SDL_FillRect(screen, &rc, realcolor);               \
     } while (0)
     int sx, sy, dx, dy, err, e2;
     dx = abs(x1 - x0);
@@ -1192,11 +1144,11 @@ static struct mapping controller_mappings[30] = {
     {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PSEUDO_BTN_LOAD_STATE}, // load
     {SDL_CONTROLLER_BUTTON_GUIDE, PSEUDO_BTN_EXIT},               // exit
     {SDL_CONTROLLER_BUTTON_START, PSEUDO_BTN_PAUSE},              // pause
-    {0xff, 0xff}
+    {(SDL_GameControllerButton)0xff, 0xff}
 };
 
 static void ReadGamepadInput(Uint16 *out_buttons) {
-    static _Bool read_config = 0;
+    static bool read_config = 0;
     if (!read_config) {
         read_config = 1;
         char const *cfg_file_path = getenv("CCLESTE_INPUT_CFG_PATH");
@@ -1273,7 +1225,7 @@ static void ReadGamepadInput(Uint16 *out_buttons) {
         struct mapping mapping = controller_mappings[i];
         if (mapping.pico8_btn == 0xFF)
             break;
-        _Bool pressed = SDL_GameControllerGetButton(controller, mapping.sdl_btn);
+        bool pressed = SDL_GameControllerGetButton(controller, mapping.sdl_btn);
         Uint16 mask = ~(1 << mapping.pico8_btn);
         *out_buttons = (*out_buttons & mask) | (pressed << mapping.pico8_btn);
     }

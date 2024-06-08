@@ -1,5 +1,6 @@
 *.d
 ccleste
+cppleste
 ccleste-fixedp
 a.out
 *.o
@@ -15,3 +16,4 @@ ccleste-input-cfg.txt
 ccleste-start-fullscreen.txt
 EBOOT.PBP
 PARAM.SFO
+bin/

@@ -1,18 +1,6 @@
-/*
- * This is where the actual celeste code sits.
- * It is mostly a line by line port of the original lua code.
- * Due to C limitations, modifications have to be made, mostly relating to static typing.
- * The PICO-8 functions such as music() are used here preceded by Celeste_P8,
- * so _init becomes Celeste_P8_init && music becomes P8music, etc
- */
-
-#include <assert.h>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "celeste.h"
+
+#include "p8.h"
 
 #ifdef __cplusplus
 #    define this xthis // this is a keyword in C++
@@ -37,101 +25,6 @@ static bool ice_at(int x, int y, int w, int h);
 static bool tile_flag_at(int x, int y, int w, int h, int flag);
 static int tile_at(int x, int y);
 static bool spikes_at(float x, float y, int w, int h, float xspd, float yspd);
-
-// exported /imported functions
-static Celeste_P8_cb_func_t Celeste_P8_call = NULL;
-
-// exported
-void Celeste_P8_set_call_func(Celeste_P8_cb_func_t func) {
-    Celeste_P8_call = func;
-}
-static void pico8_srand(unsigned seed);
-void Celeste_P8_set_rndseed(unsigned seed) {
-    pico8_srand(seed);
-}
-
-///////PICO-8 functions
-static inline void P8music(int track, int fade, int mask) {
-    Celeste_P8_call(CELESTE_P8_MUSIC, track, fade, mask);
-}
-static inline void P8spr(int sprite, int x, int y, int cols, int rows, bool flipx, bool flipy) {
-    Celeste_P8_call(CELESTE_P8_SPR, sprite, x, y, cols, rows, flipx, flipy);
-}
-static inline bool P8btn(int b) {
-    return Celeste_P8_call(CELESTE_P8_BTN, b);
-}
-static inline void P8sfx(int id) {
-    Celeste_P8_call(CELESTE_P8_SFX, id);
-}
-static inline void P8pal(int a, int b) {
-    Celeste_P8_call(CELESTE_P8_PAL, a, b);
-}
-static inline void P8pal_reset() {
-    Celeste_P8_call(CELESTE_P8_PAL_RESET);
-}
-static inline void P8circfill(int x, int y, int r, int c) {
-    Celeste_P8_call(CELESTE_P8_CIRCFILL, x, y, r, c);
-}
-static inline void P8rectfill(int x, int y, int x2, int y2, int c) {
-    Celeste_P8_call(CELESTE_P8_RECTFILL, x, y, x2, y2, c);
-}
-static inline void P8print(char const *str, int x, int y, int c) {
-    Celeste_P8_call(CELESTE_P8_PRINT, str, x, y, c);
-}
-static inline void P8line(int x, int y, int x2, int y2, int c) {
-    Celeste_P8_call(CELESTE_P8_LINE, x, y, x2, y2, c);
-}
-static inline int P8mget(int x, int y) {
-    return Celeste_P8_call(CELESTE_P8_MGET, x, y);
-}
-static inline bool P8fget(int t, int f) {
-    return Celeste_P8_call(CELESTE_P8_FGET, t, f);
-}
-static inline void P8camera(int x, int y) {
-    Celeste_P8_call(CELESTE_P8_CAMERA, x, y);
-}
-static inline void P8map(int mx, int my, int tx, int ty, int mw, int mh, int mask) {
-    Celeste_P8_call(CELESTE_P8_MAP, mx, my, tx, ty, mw, mh, mask);
-}
-// these values dont matter as set_rndseed should be called before init, as long as they arent both zero
-static unsigned rnd_seed_lo = 0, rnd_seed_hi = 1;
-static int pico8_random(int max) { // decomp'd pico-8
-    if (!max)
-        return 0;
-    rnd_seed_hi = ((rnd_seed_hi << 16) | (rnd_seed_hi >> 16)) + rnd_seed_lo;
-    rnd_seed_lo += rnd_seed_hi;
-    return rnd_seed_hi % (unsigned)max;
-};
-static void pico8_srand(unsigned seed) { // also decomp'd
-    if (seed == 0) {
-        rnd_seed_hi = 0x60009755;
-        seed = 0xdeadbeef;
-    } else {
-        rnd_seed_hi = seed ^ 0xbead29ba;
-    }
-    for (int i = 0x20; i > 0; i--) {
-        rnd_seed_hi = ((rnd_seed_hi << 16) | (rnd_seed_hi >> 16)) + seed;
-        seed += rnd_seed_hi;
-    }
-    rnd_seed_lo = seed;
-}
-// https://github.com/lemon-sherbet/ccleste/issues/1
-static float P8modulo(float a, float b) {
-    return fmodf(fmodf(a, b) + b, b);
-}
-#define P8max fmaxf
-#define P8min fminf
-#define P8abs fabsf
-#define P8flr floorf
-static float P8rnd(float max) {
-    int n = pico8_random(max * (1 << 16));
-    return (float)n / (1 << 16);
-}
-static float P8sin(float x) {
-    return -sinf(x * 6.2831853071796f); // https://pico-8.fandom.com/wiki/Math
-}
-
-#define P8cos(x) (-P8sin((x) + 0.25f)) // cos(x) = sin(x+pi/2)
 
 #define MAX_OBJECTS 30
 #define FRUIT_COUNT 30
@@ -158,7 +51,7 @@ static int freeze = 0;
 static int shake = 0;
 static bool will_restart = false;
 static int delay_restart = 0;
-static bool got_fruit[FRUIT_COUNT] = {false};
+static bool got_fruit[FRUIT_COUNT] = {};
 static bool has_dashed = false;
 static int sfx_timer = 0;
 static bool has_key = false;
@@ -223,10 +116,6 @@ static void PRELUDE() {
 }
 
 void Celeste_P8_init() { // identifiers beginning with underscores are reserved in C
-    if (!Celeste_P8_call) {
-        fprintf(stderr, "Warning: Celeste_P8_call is NULL.. have you called Celeste_P8_set_call_func()?\n");
-    }
-
     PRELUDE();
 
     title_screen();
@@ -1615,7 +1504,6 @@ void Celeste_P8_update() {
             goto redo_update_slot;
         }
     }
-    // printf("END FRAME\n\n");
 
     // start game
     if (is_title()) {
@@ -1787,7 +1675,6 @@ static void draw_object(OBJ *obj) {
     } else if (obj->spr > 0) {
         P8spr(obj->spr, obj->x, obj->y, 1, 1, obj->flip_x, obj->flip_y);
     }
-    // if (floorf(obj->spr) != obj->spr) printf("?%g %s\n", obj->spr, OBJ_PROP(obj).nam);
 }
 
 static void draw_time(float x, float y) {
@@ -1805,10 +1692,11 @@ static void draw_time(float x, float y) {
 
 // helper functions //
 //////////////////////
-static float clamp(float val, float a, float b) {
 
+static float clamp(float val, float a, float b) {
     return P8max(a, P8min(b, val));
 }
+
 static float appr(float val, float target, float amount) {
     return val > target
                ? P8max(val - amount, target)
@@ -1872,46 +1760,3 @@ void Celeste_P8__DEBUG(void) {
     else
         next_room();
 }
-
-// all of the global game variables; this holds the entire game state (exc. music/sounds playing)
-#define LISTGVARS(V)                                                                   \
-    V(rnd_seed_lo)                                                                     \
-    V(rnd_seed_hi)                                                                     \
-    V(room)                                                                            \
-    V(freeze)                                                                          \
-    V(shake)                                                                           \
-    V(will_restart)                                                                    \
-    V(delay_restart)                                                                   \
-    V(got_fruit)                                                                       \
-    V(has_dashed)                                                                      \
-    V(sfx_timer)                                                                       \
-    V(has_key)                                                                         \
-    V(pause_player) V(flash_bg) V(music_timer)                                         \
-        V(new_bg) V(frames) V(seconds) V(minutes) V(deaths) V(max_djump) V(start_game) \
-            V(start_game_flash) V(clouds) V(particles) V(dead_particles) V(objects)
-
-size_t Celeste_P8_get_state_size(void) {
-#define V_SIZE(v) (sizeof v) +
-    enum { // force comptime evaluation
-        sz = LISTGVARS(V_SIZE) - 0
-    };
-    return sz;
-#undef V_SIZE
-}
-
-void Celeste_P8_save_state(void *st_) {
-    assert(st_ != NULL);
-    char *st = (char *)st_;
-#define V_SAVE(v) memcpy(st, &v, sizeof v), st += sizeof v;
-    LISTGVARS(V_SAVE)
-#undef V_SAVE
-}
-void Celeste_P8_load_state(void const *st_) {
-    assert(st_ != NULL);
-    char const *st = (char const *)st_;
-#define V_LOAD(v) memcpy(&v, st, sizeof v), st += sizeof v;
-    LISTGVARS(V_LOAD)
-#undef V_LOAD
-}
-
-#undef LISTGVARS

@@ -11,6 +11,7 @@
 #include <SDL_mixer.h>
 
 #include "celeste.h"
+#include "p8.h"
 #include "sdl20compat.inc.c"
 
 static void ErrLog(char *fmt, ...) {
@@ -256,8 +257,6 @@ int main(int argc, char **argv) {
     ResetPalette();
     SDL_ShowCursor(0);
 
-    printf("game state size %gkb\n", Celeste_P8_get_state_size() / 1024.);
-
     printf("now loading...\n");
 
     {
@@ -296,15 +295,11 @@ skip_load:
 
     LoadData();
 
-    int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...);
-    Celeste_P8_set_call_func(pico8emu);
+    int pico8emu(P8 call, ...);
+    P8bind(pico8emu);
 
     // for reset
-    initial_game_state = SDL_malloc(Celeste_P8_get_state_size());
-    if (initial_game_state)
-        Celeste_P8_save_state(initial_game_state);
-
-    Celeste_P8_set_rndseed((unsigned)(time(NULL) + SDL_GetTicks()));
+    P8srand((unsigned)(time(NULL) + SDL_GetTicks()));
 
     Celeste_P8_init();
 
@@ -357,7 +352,6 @@ static void mainLoop(void) {
             // reset
             OSDset("reset");
             paused = 0;
-            Celeste_P8_load_state(initial_game_state);
             Mix_HaltChannel(-1);
             Mix_HaltMusic();
             Celeste_P8_init();
@@ -378,16 +372,6 @@ static void mainLoop(void) {
     if (!((prev_buttons_state >> PSEUDO_BTN_EXIT) & 1) &&
         (buttons_state >> PSEUDO_BTN_EXIT) & 1) {
         goto press_exit;
-    }
-
-    if (!((prev_buttons_state >> PSEUDO_BTN_SAVE_STATE) & 1) &&
-        (buttons_state >> PSEUDO_BTN_SAVE_STATE) & 1) {
-        goto save_state;
-    }
-
-    if (!((prev_buttons_state >> PSEUDO_BTN_LOAD_STATE) & 1) &&
-        (buttons_state >> PSEUDO_BTN_LOAD_STATE) & 1) {
-        goto load_state;
     }
 
     SDL_Event ev;
@@ -418,33 +402,6 @@ static void mainLoop(void) {
                 break;
             } else if (ev.key.keysym.scancode == SDL_SCANCODE_5) {
                 Celeste_P8__DEBUG();
-                break;
-            } else if (ev.key.keysym.scancode == SDL_SCANCODE_S &&
-                       kbstate[SDL_SCANCODE_LSHIFT]) { // save state
-            save_state:
-                game_state =
-                    game_state ? game_state : SDL_malloc(Celeste_P8_get_state_size());
-                if (game_state) {
-                    OSDset("save state");
-                    Celeste_P8_save_state(game_state);
-                    game_state_music = current_music;
-                }
-                break;
-            } else if (ev.key.keysym.scancode == SDL_SCANCODE_D &&
-                       kbstate[SDL_SCANCODE_LSHIFT]) { // load state
-            load_state:
-                if (game_state) {
-                    OSDset("load state");
-                    if (paused)
-                        paused = 0, Mix_Resume(-1), Mix_ResumeMusic();
-                    Celeste_P8_load_state(game_state);
-                    if (current_music != game_state_music) {
-                        Mix_HaltMusic();
-                        current_music = game_state_music;
-                        if (game_state_music)
-                            Mix_PlayMusic(game_state_music, -1);
-                    }
-                }
                 break;
             } else if ( // toggle screenshake (e / L+R)
                 ev.key.keysym.scancode == SDL_SCANCODE_E
@@ -635,7 +592,7 @@ static void p8_print(char const *str, int x, int y, int col) {
     }
 }
 
-int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
+int pico8emu(P8 call, ...) {
     static int camera_x = 0, camera_y = 0;
     if (!enable_screenshake) {
         camera_x = camera_y = 0;
@@ -655,7 +612,7 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
 #define RETbool(_b) RET_INT(!!(_b))
 
     switch (call) {
-    case CELESTE_P8_MUSIC: { // music(idx,fade,mask)
+    case P8_MUSIC: { // music(idx,fade,mask)
         int index = INT_ARG();
         int fade = INT_ARG();
         int mask = INT_ARG();
@@ -672,7 +629,7 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
             Mix_FadeInMusic(musi, -1, fade);
         }
     } break;
-    case CELESTE_P8_SPR: { // spr(sprite,x,y,cols,rows,flipx,flipy)
+    case P8_SPR: { // spr(sprite,x,y,cols,rows,flipx,flipy)
         int sprite = INT_ARG();
         int x = INT_ARG();
         int y = INT_ARG();
@@ -695,18 +652,18 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
             Xblit(gfx, &srcrc, screen, &dstrc, 0, flipx, flipy);
         }
     } break;
-    case CELESTE_P8_BTN: { // btn(b)
+    case P8_BTN: { // btn(b)
         int b = INT_ARG();
         assert(b >= 0 && b <= 5);
         RETbool(buttons_state & (1 << b));
     } break;
-    case CELESTE_P8_SFX: { // sfx(id)
+    case P8_SFX: { // sfx(id)
         int id = INT_ARG();
 
         if (id < (sizeof snd) / (sizeof *snd) && snd[id])
             Mix_PlayChannel(-1, snd[id], 0);
     } break;
-    case CELESTE_P8_PAL: { // pal(a,b)
+    case P8_PAL: { // pal(a,b)
         int a = INT_ARG();
         int b = INT_ARG();
         if (a >= 0 && a < 16 && b >= 0 && b < 16) {
@@ -714,10 +671,10 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
             palette[a] = base_palette[b];
         }
     } break;
-    case CELESTE_P8_PAL_RESET: { // pal()
+    case P8_PAL_RESET: { // pal()
         ResetPalette();
     } break;
-    case CELESTE_P8_CIRCFILL: { // circfill(x,y,r,col)
+    case P8_CIRCFILL: { // circfill(x,y,r,col)
         int cx = INT_ARG() - camera_x;
         int cy = INT_ARG() - camera_y;
         int r = INT_ARG();
@@ -754,7 +711,7 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
             p8_line(cx + y, cy - x, cx - y, cy - x, col);
         }
     } break;
-    case CELESTE_P8_PRINT: { // print(str,x,y,col)
+    case P8_PRINT: { // print(str,x,y,col)
         char const *str = va_arg(args, char const *);
         int x = INT_ARG() - camera_x;
         int y = INT_ARG() - camera_y;
@@ -762,7 +719,7 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
 
         p8_print(str, x, y, col);
     } break;
-    case CELESTE_P8_RECTFILL: { // rectfill(x0,y0,x1,y1,col)
+    case P8_RECTFILL: { // rectfill(x0,y0,x1,y1,col)
         int x0 = INT_ARG() - camera_x;
         int y0 = INT_ARG() - camera_y;
         int x1 = INT_ARG() - camera_x;
@@ -771,7 +728,7 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
 
         p8_rectfill(x0, y0, x1, y1, col);
     } break;
-    case CELESTE_P8_LINE: { // line(x0,y0,x1,y1,col)
+    case P8_LINE: { // line(x0,y0,x1,y1,col)
         int x0 = INT_ARG() - camera_x;
         int y0 = INT_ARG() - camera_y;
         int x1 = INT_ARG() - camera_x;
@@ -780,25 +737,25 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
 
         p8_line(x0, y0, x1, y1, col);
     } break;
-    case CELESTE_P8_MGET: { // mget(tx,ty)
+    case P8_MGET: { // mget(tx,ty)
         int tx = INT_ARG();
         int ty = INT_ARG();
 
         RET_INT(tilemap_data[tx + ty * 128]);
     } break;
-    case CELESTE_P8_CAMERA: { // camera(x,y)
+    case P8_CAMERA: { // camera(x,y)
         if (enable_screenshake) {
             camera_x = INT_ARG();
             camera_y = INT_ARG();
         }
     } break;
-    case CELESTE_P8_FGET: { // fget(tile,flag)
+    case P8_FGET: { // fget(tile,flag)
         int tile = INT_ARG();
         int flag = INT_ARG();
 
         RET_INT(gettileflag(tile, flag));
     } break;
-    case CELESTE_P8_MAP: { // map(mx,my,tx,ty,mw,mh,mask)
+    case P8_MAP: { // map(mx,my,tx,ty,mw,mh,mask)
         int mx = INT_ARG(), my = INT_ARG();
         int tx = INT_ARG(), ty = INT_ARG();
         int mw = INT_ARG(), mh = INT_ARG();

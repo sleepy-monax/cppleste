@@ -1,6 +1,3 @@
-#ifdef _PSP
-#    include <malloc.h>
-#endif // _PSP
 #include <SDL.h>
 
 #include <SDL_mixer.h>
@@ -19,22 +16,6 @@
 #    include <3ds.h>
 #endif
 #include "celeste.h"
-
-#ifdef _PSP
-
-#    include <pspmoduleinfo.h>
-
-PSP_HEAP_SIZE_MAX();
-
-void _SDL_FillRect(SDL_Surface *surface, SDL_Rect *rect, Uint32 color) {
-    rect->x += 112;
-    rect->y += 8;
-    SDL_FillRect(surface, rect, color);
-}
-
-#    define SDL_FillRect _SDL_FillRect
-
-#endif // _PSP
 
 static void ErrLog(char *fmt, ...) {
 #ifdef _3DS
@@ -64,14 +45,7 @@ Mix_Music *mus[6] = {NULL};
 #define PICO8_W 128
 #define PICO8_H 128
 
-#ifdef _PSP
-static int const scale = 2;
-#elif defined(_3DS)
-static int const scale = 2;
-#else
 static int scale = 4;
-#endif
-
 static SDL_Color const base_palette[16] = {
     {0x00, 0x00, 0x00}, {0x1d, 0x2b, 0x53}, {0x7e, 0x25, 0x53}, {0x00, 0x87, 0x51}, {0xab, 0x52, 0x36}, {0x5f, 0x57, 0x4f}, {0xc2, 0xc3, 0xc7}, {0xff, 0xf1, 0xe8}, {0xff, 0x00, 0x4d}, {0xff, 0xa3, 0x00}, {0xff, 0xec, 0x27}, {0x00, 0xe4, 0x36}, {0x29, 0xad, 0xff}, {0x83, 0x76, 0x9c}, {0xff, 0x77, 0xa8}, {0xff, 0xcc, 0xaa}
 };
@@ -282,9 +256,7 @@ static void OSDdraw(void) {
 static Mix_Music *current_music = NULL;
 static bool enable_screenshake = 1;
 static bool paused = 0;
-#ifdef _PSP
-static bool previously_paused = 0;
-#endif // _PSP
+
 static bool running = 1;
 static void *initial_game_state = NULL;
 static void *game_state = NULL;
@@ -292,17 +264,8 @@ static Mix_Music *game_state_music = NULL;
 static void mainLoop(void);
 static FILE *TAS = NULL;
 
-#ifdef _PSP
-int main(int argc, char *argv[]) {
-#else
 int main(int argc, char **argv) {
-#endif // _PSP
-#ifdef _PSP
-    SDL_CHECK(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) == 0);
-    SDL_JoystickEventState(SDL_ENABLE);
-#else  // _PSP
     SDL_CHECK(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) == 0);
-#endif // _PSP
 #if SDL_MAJOR_VERSION >= 2
     SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     SDL_GameControllerAddMappingsFromRW(
@@ -325,11 +288,7 @@ int main(int argc, char **argv) {
     SDL_N3DSKeyBind(KEY_L, SDLK_d);      // load state
     SDL_N3DSKeyBind(KEY_R, SDLK_s);      // save state
 #endif
-#ifdef _PSP
-    SDL_CHECK(screen = SDL_SetVideoMode(480, 272, 32, videoflag | SDL_HWSURFACE | SDL_DOUBLEBUF));
-#else  // _PSP
     SDL_CHECK(screen = SDL_SetVideoMode(PICO8_W * scale, PICO8_H * scale, 32, videoflag));
-#endif // _PSP
     SDL_WM_SetCaption("Celeste", NULL);
     int mixflag = MIX_INIT_OGG;
     if (Mix_Init(mixflag) != mixflag) {
@@ -457,28 +416,16 @@ enum {
     PSEUDO_BTN_EXIT = 8,
     PSEUDO_BTN_PAUSE = 9,
 };
-static void ReadGamepadInput(Uint16 *out_buttons);
 #endif
 
 static Uint16 const stick_deadzone = 32767 / 2; // about half
 
 static void mainLoop(void) {
-#ifdef _PSP
-    SDL_Joystick *joy = SDL_JoystickOpen(0);
-#endif
     Uint8 const *kbstate = SDL_GetKeyState(NULL);
 
     static int reset_input_timer = 0;
     // hold F9 (select+start+y) to reset
-    if (initial_game_state != NULL
-#ifdef _3DS
-        && kbstate[SDLK_LSHIFT] && kbstate[SDLK_ESCAPE] && kbstate[SDLK_F11]
-#elif defined(_PSP)
-        && SDL_JoystickGetButton(joy, 10) && SDL_JoystickGetButton(joy, 11)
-#else
-        && kbstate[SDLK_F9]
-#endif
-    ) {
+    if (initial_game_state != NULL && kbstate[SDLK_F9]) {
         reset_input_timer++;
         if (reset_input_timer >= 30) {
             reset_input_timer = 0;
@@ -498,7 +445,6 @@ static void mainLoop(void) {
 
 #if SDL_MAJOR_VERSION >= 2
     SDL_GameControllerUpdate();
-    ReadGamepadInput(&buttons_state);
 
     if (!((prev_buttons_state >> PSEUDO_BTN_PAUSE) & 1) &&
         (buttons_state >> PSEUDO_BTN_PAUSE) & 1) {
@@ -527,27 +473,7 @@ static void mainLoop(void) {
         case SDL_QUIT:
             running = 0;
             break;
-#ifdef _PSP
-        case SDL_JOYBUTTONDOWN: {
-            if (ev.jbutton.button == 11) {
-                goto toggle_pause;
-                break;
-            }
-            if (ev.jbutton.button == 4) {
-                goto save_state;
-                break;
-            }
-            if (ev.jbutton.button == 5) {
-                goto load_state;
-                break;
-            }
-            if (ev.jbutton.button == 10) {
-                enable_screenshake = !enable_screenshake;
-                OSDset("screenshake: %s", enable_screenshake ? "on" : "off");
-                break;
-            }
-        }
-#endif // _PSP
+
         case SDL_KEYDOWN: {
 #if SDL_MAJOR_VERSION >= 2
             if (ev.key.repeat)
@@ -618,31 +544,7 @@ static void mainLoop(void) {
         }
 
     if (!TAS) {
-#ifdef _PSP
-        Sint16 x_axis = SDL_JoystickGetAxis(joy, 0);
-        Sint16 y_axis = SDL_JoystickGetAxis(joy, 1);
-        if (x_axis < -stick_deadzone)
-            buttons_state |= (1 << 0);
-        if (x_axis > stick_deadzone)
-            buttons_state |= (1 << 1);
-        if (y_axis < -stick_deadzone)
-            buttons_state |= (1 << 2);
-        if (y_axis > stick_deadzone)
-            buttons_state |= (1 << 3);
 
-        if (SDL_JoystickGetButton(joy, 7))
-            buttons_state |= (1 << 0);
-        if (SDL_JoystickGetButton(joy, 9))
-            buttons_state |= (1 << 1);
-        if (SDL_JoystickGetButton(joy, 8))
-            buttons_state |= (1 << 2);
-        if (SDL_JoystickGetButton(joy, 6))
-            buttons_state |= (1 << 3);
-        if (SDL_JoystickGetButton(joy, 0) || SDL_JoystickGetButton(joy, 1))
-            buttons_state |= (1 << 4);
-        if (SDL_JoystickGetButton(joy, 2) || SDL_JoystickGetButton(joy, 3))
-            buttons_state |= (1 << 5);
-#else
         if (kbstate[SDLK_LEFT])
             buttons_state |= (1 << 0);
         if (kbstate[SDLK_RIGHT])
@@ -657,7 +559,6 @@ static void mainLoop(void) {
         if (kbstate[SDLK_x] || kbstate[SDLK_v] || kbstate[SDLK_m] ||
             kbstate[SDLK_b])
             buttons_state |= (1 << 5);
-#endif
     } else if (TAS && !paused) {
         static int t = 0;
         t++;
@@ -688,22 +589,8 @@ static void mainLoop(void) {
             SDL_FillRect(screen, &rc, i);
     }*/
 
-#ifdef _PSP
-    if (!paused || (paused && !previously_paused)) {
-        SDL_FillRect(screen, &(SDL_Rect){-112, -8, 112, 272}, 0);
-        SDL_FillRect(screen, &(SDL_Rect){256, -8, 112, 272}, 0);
-        SDL_Flip(screen);
-        previously_paused = paused;
-    }
-#else
     SDL_Flip(screen);
-#endif
 
-#if defined(_3DS)          /*using SDL_DOUBLEBUF for videomode makes it so SDL_Flip \
-                              waits for Vsync; so we dont have to delay manually*/  \
-    || defined(EMSCRIPTEN) // emscripten_set_main_loop already sets the fps
-    || defined(_PSP) SDL_Delay(1);
-#else
     static int t = 0;
     static unsigned frame_start = 0;
     unsigned frame_end = SDL_GetTicks();
@@ -724,7 +611,6 @@ static void mainLoop(void) {
         SDL_Delay(target_millis - frame_time);
     }
     frame_start = SDL_GetTicks();
-#endif
 }
 
 static int gettileflag(int, int);
@@ -1147,103 +1033,6 @@ static struct mapping controller_mappings[30] = {
     {(SDL_GameControllerButton)0xff, 0xff}
 };
 
-static void ReadGamepadInput(Uint16 *out_buttons) {
-    static bool read_config = 0;
-    if (!read_config) {
-        read_config = 1;
-        char const *cfg_file_path = getenv("CCLESTE_INPUT_CFG_PATH");
-        if (!cfg_file_path) {
-            cfg_file_path = "ccleste-input-cfg.txt";
-        }
-        FILE *cfg = fopen(cfg_file_path, "r");
-        if (cfg) {
-            int i;
-            for (i = 0;
-                 i < sizeof controller_mappings / sizeof *controller_mappings - 1;) {
-                char line[150], p8btn[31], sdlbtn[31];
-                fgets(line, sizeof line - 1, cfg);
-                if (feof(cfg) || ferror(cfg))
-                    break;
-                line[sizeof line - 1] = 0;
-                if (*line == '#') {
-                    // comment
-                } else if (sscanf(line, "%30s %30s", p8btn, sdlbtn) == 2) {
-                    p8btn[sizeof p8btn - 1] = sdlbtn[sizeof sdlbtn - 1] = 0;
-                    for (int btn = 0;
-                         btn < sizeof pico8_btn_names / sizeof *pico8_btn_names; btn++) {
-                        if (!SDL_strcasecmp(pico8_btn_names[btn], p8btn)) {
-                            printf("input cfg: %s -> %s\n", p8btn, sdlbtn);
-                            controller_mappings[i].sdl_btn =
-                                SDL_GameControllerGetButtonFromString(sdlbtn);
-                            controller_mappings[i].pico8_btn = btn;
-                            i++;
-                        }
-                    }
-                }
-            }
-            controller_mappings[i].pico8_btn = 0xFF;
-            fclose(cfg);
-        } else {
-            cfg = fopen(cfg_file_path, "w");
-            if (cfg) {
-                printf("creating ccleste-input-cfg.txt with default button mappings\n");
-                fprintf(cfg, "# in-game \tcontroller\n");
-                for (struct mapping *mapping = controller_mappings;
-                     mapping->pico8_btn != 0xFF; mapping++) {
-                    fprintf(cfg, "%s \t%s\n", pico8_btn_names[mapping->pico8_btn], SDL_GameControllerGetStringForButton(mapping->sdl_btn));
-                }
-                fclose(cfg);
-            }
-        }
-    }
-
-    static SDL_GameController *controller = NULL;
-    if (!controller) {
-        static int tries_left = 30;
-        if (!tries_left)
-            return;
-        tries_left--;
-
-        // use first available controller
-        int count = SDL_NumJoysticks();
-        for (int i = 0; i < count; i++) {
-            if (SDL_IsGameController(i)) {
-                controller = SDL_GameControllerOpen(i);
-                if (!controller) {
-                    fprintf(stderr, "error opening controller: %s\n", SDL_GetError());
-                    return;
-                }
-                printf("picked controller: '%s'\n", SDL_GameControllerName(controller));
-                break;
-            }
-        }
-    }
-
-    // pico 8 buttons and pseudo buttons
-    for (int i = 0; i < sizeof controller_mappings / sizeof *controller_mappings;
-         i++) {
-        struct mapping mapping = controller_mappings[i];
-        if (mapping.pico8_btn == 0xFF)
-            break;
-        bool pressed = SDL_GameControllerGetButton(controller, mapping.sdl_btn);
-        Uint16 mask = ~(1 << mapping.pico8_btn);
-        *out_buttons = (*out_buttons & mask) | (pressed << mapping.pico8_btn);
-    }
-
-    // joystick -> dpad input
-    Sint16 x_axis =
-        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
-    Sint16 y_axis =
-        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
-    if (x_axis < -stick_deadzone)
-        *out_buttons |= (1 << 0); // left
-    if (x_axis > stick_deadzone)
-        *out_buttons |= (1 << 1); // right
-    if (y_axis < -stick_deadzone)
-        *out_buttons |= (1 << 2); // up
-    if (y_axis > stick_deadzone)
-        *out_buttons |= (1 << 3); // down
-}
 #endif
 
 // vim: ts=2 sw=2 noexpandtab

@@ -14,7 +14,7 @@ else
 endif
 endif
 
-CFLAGS=-Wall -g -O2 `$(SDL_CONFIG) --cflags`
+CFLAGS=-Wall -g -O2 `$(SDL_CONFIG) --cflags --libs`
 LDFLAGS=$(SDL_LD)
 CELESTE_CC=$(CC)
 

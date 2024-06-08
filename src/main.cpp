@@ -12,21 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#ifdef _3DS
-#    include <3ds.h>
-#endif
+
 #include "celeste.h"
 
 static void ErrLog(char *fmt, ...) {
-#ifdef _3DS
-    /*FILE* f = fopen("sdmc:/ccleste.txt", "a");
-    if (!f) return;
-    fprintf(f, "%li \t", (long int)time(NULL));*/
-    FILE *f = stdout; // bottom screen console
-#else
     FILE *f = stderr;
-#endif
-
     va_list ap;
     va_start(ap, fmt);
     vfprintf(f, fmt, ap);
@@ -64,17 +54,7 @@ static void ResetPalette(void) {
 }
 
 static char *GetDataPath(char *path, int n, char const *fname) {
-#ifdef _3DS
-    snprintf(path, n, "romfs:/%s", fname);
-#else
-#    ifdef _WIN32
-    char pathsep = '\\';
-#    else
-    char pathsep = '/';
-#    endif //_WIN32
-    snprintf(path, n, "data%c%s", pathsep, fname);
-#endif     //_3DS
-
+    snprintf(path, n, "data/%s", fname);
     return path;
 }
 
@@ -273,21 +253,6 @@ int main(int argc, char **argv) {
     );
 #endif
     int videoflag = SDL_SWSURFACE | SDL_HWPALETTE;
-#ifdef _3DS
-    fsInit();
-    romfsInit();
-    videoflag = SDL_DOUBLEBUF | SDL_HWSURFACE | SDL_CONSOLEBOTTOM | SDL_TOPSCR;
-    SDL_N3DSKeyBind(KEY_CPAD_UP | KEY_CSTICK_UP, SDLK_UP);
-    SDL_N3DSKeyBind(KEY_CPAD_DOWN | KEY_CSTICK_DOWN, SDLK_DOWN);
-    SDL_N3DSKeyBind(KEY_CPAD_LEFT | KEY_CSTICK_LEFT, SDLK_LEFT);
-    SDL_N3DSKeyBind(KEY_CPAD_RIGHT | KEY_CSTICK_RIGHT, SDLK_RIGHT);
-    SDL_N3DSKeyBind(KEY_SELECT, SDLK_F11);   // to switch full screen
-    SDL_N3DSKeyBind(KEY_START, SDLK_ESCAPE); // to pause
-
-    SDL_N3DSKeyBind(KEY_Y, SDLK_LSHIFT); // hold to reset / load/save state
-    SDL_N3DSKeyBind(KEY_L, SDLK_d);      // load state
-    SDL_N3DSKeyBind(KEY_R, SDLK_s);      // save state
-#endif
     SDL_CHECK(screen = SDL_SetVideoMode(PICO8_W * scale, PICO8_H * scale, 32, videoflag));
     SDL_WM_SetCaption("Celeste", NULL);
     int mixflag = MIX_INIT_OGG;
@@ -529,12 +494,7 @@ static void mainLoop(void) {
                 }
                 break;
             } else if ( // toggle screenshake (e / L+R)
-#ifdef _3DS
-                (ev.key.keysym.sym == SDLK_d && kbstate[SDLK_s]) ||
-                (ev.key.keysym.sym == SDLK_s && kbstate[SDLK_d])
-#else
                 ev.key.keysym.sym == SDLK_e
-#endif
             ) {
                 enable_screenshake = !enable_screenshake;
                 OSDset("screenshake: %s", enable_screenshake ? "on" : "off");
@@ -860,14 +820,6 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
         int x = INT_ARG() - camera_x;
         int y = INT_ARG() - camera_y;
         int col = INT_ARG() % 16;
-
-#ifdef _3DS
-        if (!strcmp(str, "x+c")) {
-            // this is confusing, as 3DS uses a+b button, so use this hack to make it
-            // more appropiate
-            str = "a+b";
-        }
-#endif
 
         p8_print(str, x, y, col);
     } break;

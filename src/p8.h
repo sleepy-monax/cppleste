@@ -77,6 +77,6 @@ static inline float P8modulo(float a, float b) {
 
 #define P8flr floorf
 
-#define P8sin(x) -sinf(x * 6.2831853071796f)
+#define P8sin(x) (-sinf((x) * 6.2831853071796f))
 
-#define P8cos(x) (-P8sin((x) + 0.25f)) // cos(x) = sin(x+pi/2)
+#define P8cos(x) (-P8sin((x) + 0.25f))

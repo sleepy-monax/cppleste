@@ -6,7 +6,6 @@
 #    define this xthis // this is a keyword in C++
 #endif
 
-// i cant be bothered to put all function declarations in an appropiate place so ill just toss them all here:
 static void PRELUDE(void);
 static void PRELUDE_initclouds(void);
 static void PRELUDE_initparticles(void);
@@ -205,7 +204,7 @@ typedef struct {
 // OBJECT strucutre
 typedef struct {
     bool active;
-    short id; // unique identifier for each object, incremented per object
+    short id;
 
     // inherited
     OBJTYPE type;
@@ -661,7 +660,12 @@ static void psfx(int num) {
 void create_hair(OBJ *obj) {
     /*obj->hair = {};*/
     for (int i = 0; i <= 4; i++) {
-        obj->hair[i] = (HAIR){.x = obj->x, .y = obj->y, .size = P8max(1, P8min(2, 3 - i)), .isLast = i == 4};
+        obj->hair[i] = (HAIR){
+            .x = obj->x,
+            .y = obj->y,
+            .size = P8max(1, P8min(2, 3 - i)),
+            .isLast = i == 4,
+        };
     }
 }
 
@@ -1452,7 +1456,7 @@ void Celeste_P8_update() {
         sfx_timer -= 1;
     }
 
-    // cancel if (freeze
+    // cancel if (freeze)
     if (freeze > 0) {
         freeze -= 1;
         return;
@@ -1547,8 +1551,8 @@ void Celeste_P8_draw() {
             c = 0;
         }
         if (c < 10) {
-            P8pal(6, c),
-                P8pal(12, c);
+            P8pal(6, c);
+            P8pal(12, c);
             P8pal(13, c);
             P8pal(5, c);
             P8pal(1, c);
@@ -1707,7 +1711,6 @@ static float sign(float v) {
     return v > 0 ? 1 : (v < 0 ? -1 : 0);
 }
 static bool maybe() {
-
     return P8rnd(1) < 0.5;
 }
 
